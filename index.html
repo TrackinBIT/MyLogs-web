@@ -1,0 +1,623 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MyLogs 日志应用</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        gray: {
+                            850: '#18181b',
+                            950: '#09090b',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css" rel="stylesheet" />
+    
+    <style>
+        /* --- 基础样式 --- */
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; 
+            transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease; 
+        }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        
+        /* --- 编辑器核心 --- */
+        #editor { 
+            outline: none; 
+            min-height: 100%; 
+            padding-bottom: 40vh; 
+            display: block; 
+            line-height: 1.7;
+        }
+        
+        #editor:empty:before { 
+            content: attr(data-placeholder); 
+            color: #9CA3AF; 
+            pointer-events: none; 
+        }
+
+        /* --- 媒体元素 --- */
+        #editor img { max-width: 100%; border-radius: 8px; margin: 12px 0; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); }
+        #editor video { 
+            max-width: 100%; border-radius: 8px; margin: 12px 0; display: block; background: #000;
+            max-height: 500px; object-fit: contain; 
+        }
+        
+        /* --- 代码块样式 --- */
+        .code-block { 
+            background-color: #1e1e1e; 
+            padding: 0; 
+            border-radius: 8px; 
+            margin: 1.5em 0;
+            border: 1px solid #333; 
+            max-height: 350px; 
+            overflow: auto; 
+            position: relative;
+        }
+
+        .code-content {
+            font-family: 'Menlo', 'Monaco', 'Courier New', monospace; 
+            font-size: 13px; 
+            line-height: 1.5; 
+            padding: 16px; 
+            color: #e5e5e5; 
+            white-space: pre; 
+            outline: none;
+            caret-color: white; 
+            background-color: transparent !important;
+            display: inline-block; 
+            min-width: 100%;
+            box-sizing: border-box;
+        }
+
+        .code-block pre { margin: 0 !important; padding: 0 !important; background: transparent !important; }
+
+        .code-content:empty::before {
+            content: attr(data-placeholder);
+            color: #6b7280;
+            position: absolute;
+            left: 16px; top: 50%; transform: translateY(-50%);
+            pointer-events: none;
+        }
+
+        /* --- 附件卡片 --- */
+        .file-card {
+            display: inline-flex; align-items: center; gap: 10px; 
+            background: #f3f4f6; border: 1px solid #e5e7eb;
+            padding: 8px 12px; border-radius: 6px; 
+            color: #374151; text-decoration: none; font-size: 14px; margin: 8px 0; user-select: none;
+        }
+        .dark .file-card {
+            background: #1f2937; border-color: #374151; color: #E5E7EB;
+        }
+
+        /* --- 动画与状态 --- */
+        #sidebar { transition: transform 0.2s ease-in-out; }
+        #sidebar.closed { transform: translateX(-100%); position: absolute; z-index: 50; height: 100%; }
+        #editor p:empty:not(:focus)::before { content: '\200b'; }
+        
+        .btn-active { background-color: #e5e7eb !important; color: #000 !important; box-shadow: inset 0 2px 4px 0 rgb(0 0 0 / 0.05); }
+        .dark .btn-active { background-color: #374151 !important; color: #fff !important; }
+        
+        aside, header, .flex-1 { transition: background-color 0.3s ease, border-color 0.3s ease; }
+    </style>
+</head>
+
+<body class="bg-white dark:bg-gray-950 text-gray-900 dark:text-gray-200 h-screen flex overflow-hidden selection:bg-blue-100 dark:selection:bg-blue-900">
+
+    <aside id="sidebar" class="w-64 bg-gray-50 dark:bg-gray-850 border-r border-gray-200 dark:border-gray-800 flex flex-col shrink-0 relative z-40 h-full">
+        <div class="p-4 border-b border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-850">
+            <button id="btn-open-dir" class="w-full py-2 px-3 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors flex items-center justify-center gap-2 mb-4">
+                <i data-lucide="folder-open" class="w-4 h-4"></i> 打开日志文件夹
+            </button>
+            <div class="flex items-center justify-between px-1">
+                <span class="text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">日志列表</span>
+                <button id="btn-new-log" class="p-1 text-blue-600 hover:bg-blue-100 dark:hover:bg-gray-800 rounded transition-colors" title="新建日志">
+                    <i data-lucide="plus" class="w-5 h-5"></i>
+                </button>
+            </div>
+        </div>
+        <div id="file-list" class="flex-1 overflow-y-auto p-2 space-y-0.5 no-scrollbar">
+            <div class="flex flex-col items-center justify-center h-40 text-gray-400 text-xs text-center opacity-60">
+                请先选择存储位置
+            </div>
+        </div>
+    </aside>
+
+    <div class="flex-1 flex flex-col min-w-0 bg-white dark:bg-gray-950 relative h-full">
+        <header class="h-14 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between px-4 bg-white/90 dark:bg-gray-950/90 backdrop-blur z-30 shrink-0">
+            <div class="flex items-center gap-3 flex-1 overflow-hidden mr-4">
+                <button id="btn-toggle-sidebar" class="p-2 -ml-2 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-md transition-colors">
+                    <i data-lucide="panel-left" class="w-5 h-5"></i>
+                </button>
+                <div class="flex flex-col min-w-0">
+                    <h1 id="current-filename" class="font-bold text-gray-800 dark:text-gray-100 text-sm truncate">未选择日志</h1>
+                    <span id="save-status" class="text-[10px] text-gray-400 font-medium h-3 leading-3"></span>
+                </div>
+            </div>
+            
+            <div class="flex items-center gap-3">
+                <div class="flex items-center gap-0.5 bg-gray-50 dark:bg-gray-900 p-1 rounded-lg border border-gray-200 dark:border-gray-700 transition-colors">
+                    <button id="btn-insert-time" class="p-2 text-gray-600 dark:text-gray-300 hover:bg-white dark:hover:bg-gray-700 rounded-md transition-all" title="插入时间"><i data-lucide="clock" class="w-4 h-4"></i></button>
+                    <button id="btn-bold" class="p-2 text-gray-600 dark:text-gray-300 hover:bg-white dark:hover:bg-gray-700 rounded-md transition-all" title="加粗"><i data-lucide="bold" class="w-4 h-4"></i></button>
+                    <button id="btn-code-block" class="p-2 text-gray-600 dark:text-gray-300 hover:bg-white dark:hover:bg-gray-700 rounded-md transition-all" title="插入代码块"><i data-lucide="code-2" class="w-4 h-4"></i></button>
+                    
+                    <div class="w-px h-4 bg-gray-300 dark:bg-gray-600 mx-1"></div>
+                    
+                    <button id="btn-upload-img" class="p-2 text-gray-600 dark:text-gray-300 hover:bg-white dark:hover:bg-gray-700 rounded-md transition-all"><i data-lucide="image" class="w-4 h-4"></i></button>
+                    <button id="btn-upload-video" class="p-2 text-gray-600 dark:text-gray-300 hover:bg-white dark:hover:bg-gray-700 rounded-md transition-all"><i data-lucide="video" class="w-4 h-4"></i></button>
+                    <button id="btn-upload-file" class="p-2 text-gray-600 dark:text-gray-300 hover:bg-white dark:hover:bg-gray-700 rounded-md transition-all"><i data-lucide="paperclip" class="w-4 h-4"></i></button>
+                </div>
+
+                <div class="w-px h-6 bg-gray-200 dark:bg-gray-800"></div>
+
+                <button id="btn-theme" class="p-2 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors" title="切换主题">
+                    <i data-lucide="moon" class="w-5 h-5 pointer-events-none"></i>
+                </button>
+            </div>
+        </header>
+
+        <div class="flex-1 overflow-y-auto relative cursor-text bg-white dark:bg-gray-950 scroll-smooth transition-colors">
+            <div class="max-w-3xl mx-auto min-h-full p-8 sm:p-12">
+                <div id="empty-state" class="absolute inset-0 flex flex-col items-center justify-center text-gray-300 dark:text-gray-700 pointer-events-none">
+                    <i data-lucide="book-open" class="w-12 h-12 mb-4 opacity-20"></i>
+                    <p class="text-sm opacity-60">选择或新建日志</p>
+                </div>
+                <div id="editor" contenteditable="true" class="hidden text-gray-800 dark:text-gray-200 text-[16px]" data-placeholder="在此输入内容..."></div>
+            </div>
+        </div>
+    </div>
+
+    <input type="file" id="file-input" class="hidden">
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-clike.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-javascript.min.js"></script>
+    
+    <script>
+        const Config = {
+            LOG_FILENAME: 'mylogs.html',
+            DB_NAME: 'JournalDB',
+            STORE_NAME: 'handles',
+            HANDLE_KEY: 'logDirHandle',
+            LAST_LOG_KEY: 'lastLogName',
+            THEME_KEY: 'appTheme'
+        };
+
+        const State = {
+            dirHandle: null,
+            activeLogDirHandle: null,
+            uploadType: 'image',
+            saveTimeout: null,
+            isDirty: false
+        };
+
+        const DOM = {
+            editor: document.getElementById('editor'),
+            fileInput: document.getElementById('file-input'),
+            saveStatus: document.getElementById('save-status'),
+            emptyState: document.getElementById('empty-state'),
+            currentFilename: document.getElementById('current-filename'),
+            fileList: document.getElementById('file-list'),
+            sidebar: document.getElementById('sidebar'),
+            btnTheme: document.getElementById('btn-theme'),
+            btnBold: document.getElementById('btn-bold')
+        };
+
+        const UI = {
+            initTheme() {
+                try {
+                    const savedTheme = localStorage.getItem(Config.THEME_KEY);
+                    const isDark = savedTheme === 'dark' || (!savedTheme && window.matchMedia('(prefers-color-scheme: dark)').matches);
+                    if (isDark) document.documentElement.classList.add('dark');
+                    else document.documentElement.classList.remove('dark');
+                    this.updateThemeIcon(isDark);
+                } catch(e) { console.error('Theme Init', e); }
+            },
+            toggleTheme() {
+                const isDark = document.documentElement.classList.toggle('dark');
+                try { localStorage.setItem(Config.THEME_KEY, isDark ? 'dark' : 'light'); } catch(e) {}
+                this.updateThemeIcon(isDark);
+            },
+            updateThemeIcon(isDark) {
+                DOM.btnTheme.innerHTML = isDark ? '<i data-lucide="sun" class="w-5 h-5 pointer-events-none"></i>' : '<i data-lucide="moon" class="w-5 h-5 pointer-events-none"></i>';
+                lucide.createIcons();
+            },
+            toggleSidebar() { DOM.sidebar.classList.toggle('closed'); },
+            sanitizeName(name) { return name.replace(/[\/\\?%*:|"<>]/g, '_').replace(/^\.+/, '').trim(); },
+            
+            clearEditor() {
+                State.activeLogDirHandle = null;
+                DOM.editor.classList.add('hidden');
+                DOM.editor.innerHTML = '';
+                DOM.emptyState.classList.remove('hidden');
+                DOM.currentFilename.innerText = '未选择日志';
+                DOM.saveStatus.innerText = '';
+                localStorage.removeItem(Config.LAST_LOG_KEY);
+            },
+            updateStatus(msg, type = 'normal') {
+                DOM.saveStatus.innerText = msg;
+                DOM.saveStatus.className = type === 'error' ? 'text-[10px] text-red-500 font-medium' : type === 'saving' ? 'text-[10px] text-blue-500 font-medium' : 'text-[10px] text-gray-400 font-medium';
+            },
+            checkToolbarState() {
+                if (document.queryCommandState('bold')) DOM.btnBold.classList.add('btn-active');
+                else DOM.btnBold.classList.remove('btn-active');
+            },
+            refreshSidebar(logFolders) {
+                DOM.fileList.innerHTML = '';
+                if (!logFolders || logFolders.length === 0) {
+                    DOM.fileList.innerHTML = '<div class="text-center text-gray-400 text-xs mt-10">无日志<br>点击 + 新建</div>';
+                    return;
+                }
+                logFolders.sort((a, b) => b.name.localeCompare(a.name));
+                logFolders.forEach(dir => {
+                    const isActive = State.activeLogDirHandle && State.activeLogDirHandle.name === dir.name;
+                    const div = document.createElement('div');
+                    div.className = `flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer text-sm transition-all group ${isActive ? 'bg-white dark:bg-gray-800 shadow-sm text-blue-600 dark:text-blue-400 border border-gray-100 dark:border-gray-700' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'}`;
+                    let html = `<i data-lucide="file-text" class="w-4 h-4 shrink-0 opacity-70"></i><span class="truncate flex-1">${dir.name}</span>`;
+                    if (isActive) html += `<div class="flex items-center gap-1 ml-auto shrink-0"><button class="btn-rename p-1 hover:bg-blue-100 dark:hover:bg-gray-700 rounded text-blue-600 dark:text-blue-400"><i data-lucide="pencil" class="w-3.5 h-3.5"></i></button><button class="btn-delete p-1 hover:bg-red-100 dark:hover:bg-gray-700 rounded text-red-600 dark:text-red-400"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button></div>`;
+                    div.innerHTML = html;
+                    div.onclick = () => FileSystem.loadFile(dir);
+                    if (isActive) {
+                        const btnRename = div.querySelector('.btn-rename');
+                        const btnDelete = div.querySelector('.btn-delete');
+                        if(btnRename) btnRename.onclick = (e) => { e.stopPropagation(); FileSystem.renameLog(); };
+                        if(btnDelete) btnDelete.onclick = (e) => { e.stopPropagation(); FileSystem.deleteLog(); };
+                    }
+                    DOM.fileList.appendChild(div);
+                });
+                lucide.createIcons();
+            }
+        };
+
+        const FileSystem = {
+            async init() {
+                const handle = await this.loadHandle();
+                if (handle && (await handle.queryPermission({mode:'readwrite'})) === 'granted') {
+                    State.dirHandle = handle;
+                    await this.loadFileList();
+                    const lastLogName = localStorage.getItem(Config.LAST_LOG_KEY);
+                    if (lastLogName) {
+                        try {
+                            const logDir = await State.dirHandle.getDirectoryHandle(lastLogName);
+                            await this.loadFile(logDir);
+                        } catch(e) {}
+                    }
+                }
+            },
+            openDB() { return new Promise((resolve, reject) => { const req = indexedDB.open(Config.DB_NAME, 1); req.onupgradeneeded = e => e.target.result.createObjectStore(Config.STORE_NAME); req.onsuccess = e => resolve(e.target.result); req.onerror = e => reject(e); }); },
+            async saveHandle(handle) { try { const db = await this.openDB(); db.transaction(Config.STORE_NAME, 'readwrite').objectStore(Config.STORE_NAME).put(handle, Config.HANDLE_KEY); } catch(e) {} },
+            async loadHandle() { try { const db = await this.openDB(); return new Promise(r => { const req = db.transaction(Config.STORE_NAME, 'readonly').objectStore(Config.STORE_NAME).get(Config.HANDLE_KEY); req.onsuccess = e => r(e.target.result); req.onerror = () => r(null); }); } catch(e) { return null; } },
+            
+            async openDirectory() {
+                try {
+                    const handle = await window.showDirectoryPicker({ mode: 'readwrite' });
+                    if ((await handle.requestPermission({ mode: 'readwrite' })) !== 'granted') return;
+                    State.dirHandle = handle;
+                    await this.saveHandle(handle);
+                    await this.loadFileList();
+                } catch(e) { if(e.name !== 'AbortError') console.error(e); }
+            },
+            async loadFileList() {
+                if (!State.dirHandle) return;
+                const folders = [];
+                try {
+                    for await (const entry of State.dirHandle.values()) {
+                        if (entry.kind === 'directory') {
+                            try { await entry.getFileHandle(Config.LOG_FILENAME); folders.push(entry); } catch(e){}
+                        }
+                    }
+                } catch(e) {}
+                UI.refreshSidebar(folders);
+            },
+            async getUniqueDirectoryName(baseName) {
+                let name = baseName;
+                let counter = 1;
+                while (true) {
+                    try { await State.dirHandle.getDirectoryHandle(name); name = `${baseName}(${counter})`; counter++; } catch (e) { if (e.name === 'NotFoundError') return name; throw e; }
+                }
+            },
+            // 🛡️ 新增：获取唯一文件名（针对附件）
+            async getUniqueFileName(filename) {
+                if (!State.activeLogDirHandle) return filename;
+                
+                let name = filename;
+                let counter = 1;
+                const extIndex = name.lastIndexOf('.');
+                const base = extIndex !== -1 ? name.substring(0, extIndex) : name;
+                const ext = extIndex !== -1 ? name.substring(extIndex) : '';
+
+                while (true) {
+                    try {
+                        // 尝试获取文件，如果不报错说明存在，需要重命名
+                        await State.activeLogDirHandle.getFileHandle(name);
+                        name = `${base}(${counter})${ext}`;
+                        counter++;
+                    } catch (e) {
+                        if (e.name === 'NotFoundError') return name;
+                        throw e;
+                    }
+                }
+            },
+
+            async createNewLog() {
+                if (!State.dirHandle) return alert('请先打开文件夹');
+                const date = new Date().toLocaleDateString('zh-CN', {year:'numeric',month:'2-digit',day:'2-digit'}).replace(/\//g,'-');
+                let name = prompt("日志标题:", date);
+                if (!name) return;
+                name = UI.sanitizeName(name);
+                try {
+                    const uniqueName = await this.getUniqueDirectoryName(name);
+                    const dir = await State.dirHandle.getDirectoryHandle(uniqueName, {create:true});
+                    const file = await dir.getFileHandle(Config.LOG_FILENAME, {create:true});
+                    const w = await file.createWritable();
+                    await w.write(''); await w.close();
+                    await this.loadFileList();
+                    await this.loadFile(dir);
+                } catch(e) { alert('创建失败: ' + e.message); }
+            },
+            async loadFile(dirHandle) {
+                State.activeLogDirHandle = dirHandle;
+                localStorage.setItem(Config.LAST_LOG_KEY, dirHandle.name);
+                DOM.emptyState.classList.add('hidden');
+                DOM.editor.classList.remove('hidden');
+                DOM.currentFilename.innerText = dirHandle.name;
+                DOM.editor.innerHTML = '';
+                try {
+                    const fileHandle = await dirHandle.getFileHandle(Config.LOG_FILENAME);
+                    const file = await fileHandle.getFile();
+                    let html = await file.text();
+                    if (html.includes('id="sidebar"')) {
+                        const parser = new DOMParser();
+                        const doc = parser.parseFromString(html, 'text/html');
+                        const savedEditor = doc.getElementById('editor');
+                        if (savedEditor) html = savedEditor.innerHTML;
+                        else { doc.getElementById('sidebar')?.remove(); doc.querySelector('header')?.remove(); html = doc.body.innerHTML; }
+                    }
+                    const tempDiv = document.createElement('div');
+                    tempDiv.innerHTML = html;
+                    const assets = tempDiv.querySelectorAll('[data-filename]');
+                    for (const el of assets) {
+                        const name = el.getAttribute('data-filename');
+                        try {
+                            const assetHandle = await dirHandle.getFileHandle(name);
+                            const assetFile = await assetHandle.getFile();
+                            const url = URL.createObjectURL(assetFile);
+                            if (el.tagName === 'A') el.href = url; else el.src = url;
+                            if (el.tagName === 'VIDEO') { el.setAttribute('controls', ''); el.setAttribute('playsinline', ''); }
+                        } catch(e) {}
+                    }
+                    DOM.editor.innerHTML = tempDiv.innerHTML;
+                    DOM.editor.querySelectorAll('.code-content').forEach(el => { if (!el.textContent.trim()) el.setAttribute('data-placeholder', '在此处输入代码...'); });
+                } catch(e) { DOM.editor.innerHTML = `<p class="text-red-500">读取失败</p>`; }
+                Editor.highlight();
+                this.loadFileList();
+                State.isDirty = false;
+            },
+            triggerSave() {
+                State.isDirty = true;
+                clearTimeout(State.saveTimeout);
+                UI.updateStatus('保存中...', 'saving');
+                State.saveTimeout = setTimeout(() => this.saveFile(), 500);
+                clearTimeout(State.highlightTimeout);
+                State.highlightTimeout = setTimeout(() => Editor.highlight(), 1200);
+            },
+            async saveFile() {
+                if (!State.activeLogDirHandle) return;
+                const clone = DOM.editor.cloneNode(true);
+                clone.querySelectorAll('[data-filename]').forEach(el => {
+                    const name = el.getAttribute('data-filename');
+                    if (el.tagName === 'A') el.href = name; else el.src = name;
+                    if (el.tagName === 'VIDEO') { el.removeAttribute('controls'); el.removeAttribute('playsinline'); }
+                });
+                clone.querySelectorAll('.code-content').forEach(el => {
+                    el.removeAttribute('data-placeholder');
+                    const text = el.textContent;
+                    el.innerHTML = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+                });
+                try {
+                    const handle = await State.activeLogDirHandle.getFileHandle(Config.LOG_FILENAME, {create:true});
+                    const w = await handle.createWritable();
+                    await w.write(clone.innerHTML);
+                    await w.close();
+                    UI.updateStatus('已保存');
+                    State.isDirty = false;
+                    setTimeout(() => UI.updateStatus(''), 2000);
+                    this.cleanupAssets(clone);
+                } catch(e) { UI.updateStatus('保存失败', 'error'); }
+            },
+            async cleanupAssets(contentNode) {
+                const used = new Set();
+                contentNode.querySelectorAll('[data-filename]').forEach(el => used.add(el.getAttribute('data-filename')));
+                used.add(Config.LOG_FILENAME);
+                for await (const entry of State.activeLogDirHandle.values()) {
+                    if (entry.kind === 'file' && !used.has(entry.name)) await State.activeLogDirHandle.removeEntry(entry.name);
+                }
+            },
+            async renameLog() {
+                if (!State.activeLogDirHandle) return;
+                let name = prompt("重命名为:", State.activeLogDirHandle.name);
+                if (!name || name === State.activeLogDirHandle.name) return;
+                name = UI.sanitizeName(name);
+                try {
+                    name = await this.getUniqueDirectoryName(name);
+                    const newDir = await State.dirHandle.getDirectoryHandle(name, {create:true});
+                    for await (const entry of State.activeLogDirHandle.values()) {
+                        const srcFile = await entry.getFile();
+                        const destFileHandle = await newDir.getFileHandle(entry.name, {create:true});
+                        const w = await destFileHandle.createWritable();
+                        await w.write(await srcFile.arrayBuffer());
+                        await w.close();
+                    }
+                    await State.dirHandle.removeEntry(State.activeLogDirHandle.name, {recursive:true});
+                    State.activeLogDirHandle = newDir;
+                    localStorage.setItem(Config.LAST_LOG_KEY, name);
+                    DOM.currentFilename.innerText = name;
+                    await this.loadFileList();
+                } catch(e) { alert('重命名失败: ' + e.message); }
+            },
+            async deleteLog() {
+                if (!State.activeLogDirHandle || !confirm(`删除日志 "${State.activeLogDirHandle.name}"?`)) return;
+                try {
+                    await State.dirHandle.removeEntry(State.activeLogDirHandle.name, {recursive:true});
+                    UI.clearEditor();
+                    await this.loadFileList();
+                } catch(e) { alert('删除失败'); }
+            }
+        };
+
+        const Editor = {
+            exec(cmd) { document.execCommand(cmd, false, null); DOM.editor.focus(); UI.checkToolbarState(); },
+            insertHtml(html, forceSave = false) {
+                DOM.editor.focus();
+                const sel = window.getSelection();
+                if (!sel.rangeCount || !DOM.editor.contains(sel.anchorNode)) return;
+                const range = sel.getRangeAt(0);
+                range.deleteContents();
+                const el = document.createElement("div");
+                el.innerHTML = html;
+                const frag = document.createDocumentFragment();
+                let node, lastNode;
+                while (node = el.firstChild) lastNode = frag.appendChild(node);
+                range.insertNode(frag);
+                if (lastNode && lastNode.tagName === 'DIV' && lastNode.querySelector('.code-block')) {
+                    const codeInner = lastNode.querySelector('.code-content');
+                    if (codeInner) { range.setStart(codeInner, 0); range.collapse(true); sel.removeAllRanges(); sel.addRange(range); codeInner.focus(); return; }
+                }
+                if (lastNode) { range.setStartAfter(lastNode); range.collapse(true); sel.removeAllRanges(); sel.addRange(range); }
+                if (forceSave) FileSystem.saveFile(); else FileSystem.triggerSave();
+            },
+            insertTime() { const t = new Date().toLocaleString('zh-CN', { hour12: false }); this.insertHtml(`&ZeroWidthSpace;<span class="select-none bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-300 text-sm px-2 py-0.5 rounded mx-1" contenteditable="false">${t}</span>&nbsp;`); },
+            insertCodeBlock() { this.insertHtml(`<div><pre class="code-block" contenteditable="false"><div contenteditable="true" class="code-content" data-placeholder="在此处输入代码..."></div></pre></div><p><br></p>`); this.highlight(); },
+            highlight() {
+                if (!window.Prism) return;
+                DOM.editor.querySelectorAll('.code-content').forEach(div => {
+                    const code = div.textContent;
+                    if (code.trim() === '') { div.innerHTML = ''; return; }
+                    const sel = window.getSelection();
+                    const isFocused = div.contains(sel.anchorNode);
+                    let offset = 0;
+                    if (isFocused) { const range = sel.getRangeAt(0); const preCaretRange = range.cloneRange(); preCaretRange.selectNodeContents(div); preCaretRange.setEnd(range.endContainer, range.endOffset); offset = preCaretRange.toString().length; }
+                    const highlighted = Prism.highlight(code, Prism.languages.javascript, 'javascript');
+                    div.innerHTML = highlighted;
+                    if (isFocused) {
+                        const newRange = document.createRange();
+                        let charCount = 0, found = false;
+                        const traverse = (node) => { if (found) return; if (node.nodeType === 3) { const nextCount = charCount + node.length; if (offset <= nextCount) { newRange.setStart(node, offset - charCount); newRange.collapse(true); found = true; } charCount = nextCount; } else { for (let i = 0; i < node.childNodes.length; i++) traverse(node.childNodes[i]); } };
+                        traverse(div);
+                        if (found) { sel.removeAllRanges(); sel.addRange(newRange); } else { const range = document.createRange(); range.selectNodeContents(div); range.collapse(false); sel.removeAllRanges(); sel.addRange(range); }
+                    }
+                });
+            },
+            triggerUpload(type) { if (!State.activeLogDirHandle) return alert('请先选择日志'); State.uploadType = type; DOM.fileInput.accept = type === 'image' ? 'image/*' : type === 'video' ? 'video/*' : '*/*'; DOM.fileInput.click(); }
+        };
+
+        // --- Init & Events ---
+        window.addEventListener('load', () => { lucide.createIcons(); UI.initTheme(); FileSystem.init(); });
+        
+        document.getElementById('btn-open-dir').addEventListener('click', () => FileSystem.openDirectory());
+        document.getElementById('btn-new-log').addEventListener('click', () => FileSystem.createNewLog());
+        document.getElementById('btn-toggle-sidebar').addEventListener('click', () => UI.toggleSidebar());
+        document.getElementById('btn-theme').addEventListener('click', () => UI.toggleTheme());
+        document.getElementById('btn-insert-time').addEventListener('click', () => Editor.insertTime());
+        document.getElementById('btn-bold').addEventListener('click', () => Editor.exec('bold'));
+        document.getElementById('btn-code-block').addEventListener('click', () => Editor.insertCodeBlock());
+        document.getElementById('btn-upload-img').addEventListener('click', () => Editor.triggerUpload('image'));
+        document.getElementById('btn-upload-video').addEventListener('click', () => Editor.triggerUpload('video'));
+        document.getElementById('btn-upload-file').addEventListener('click', () => Editor.triggerUpload('file'));
+
+        document.addEventListener('selectionchange', () => { if (document.activeElement === DOM.editor) UI.checkToolbarState(); });
+        window.addEventListener('beforeunload', (e) => { if (State.isDirty) { e.preventDefault(); e.returnValue = ''; } });
+
+        // 修正后的文件上传逻辑 (支持重名检测)
+        DOM.fileInput.onchange = async (e) => {
+            const file = e.target.files[0];
+            if (!file || !State.activeLogDirHandle) return;
+            
+            let filename;
+            
+            if (State.uploadType === 'file') {
+                // 附件：保留原名 + 自动重命名
+                filename = await FileSystem.getUniqueFileName(UI.sanitizeName(file.name));
+            } else {
+                // 图片/视频：保留时间戳命名
+                const ext = file.name.substring(file.name.lastIndexOf('.'));
+                const timestamp = new Date().getTime().toString().slice(-6);
+                const prefix = State.uploadType === 'image' ? 'IMG' : 'VID';
+                const baseName = `${prefix}_${timestamp}`;
+                // 即使是时间戳，理论上也可能重复，加一层保险
+                filename = await FileSystem.getUniqueFileName(UI.sanitizeName(`${baseName}${ext}`));
+            }
+            
+            try {
+                const handle = await State.activeLogDirHandle.getFileHandle(filename, {create:true});
+                const w = await handle.createWritable();
+                await w.write(await file.arrayBuffer()); await w.close();
+                
+                const url = URL.createObjectURL(file);
+                let html = '';
+                if (State.uploadType === 'image') html = `<img src="${url}" data-filename="${filename}"><p><br></p>`;
+                else if (State.uploadType === 'video') html = `<video src="${url}" data-filename="${filename}" controls playsinline contenteditable="false"></video><p><br></p>`;
+                else html = `<a href="${url}" download="${filename}" class="file-card" data-filename="${filename}" contenteditable="false"><span class="text-xl">📄</span><span>${filename}</span></a><p><br></p>`;
+                Editor.insertHtml(html, true);
+            } catch(e) { alert('上传失败: ' + e.message); }
+            DOM.fileInput.value = null;
+        };
+
+        DOM.editor.addEventListener('input', () => FileSystem.triggerSave());
+        DOM.editor.addEventListener('paste', (e) => {
+            const codeContent = e.target.closest('.code-content');
+            if (codeContent) {
+                e.preventDefault();
+                const text = (e.clipboardData || window.clipboardData).getData('text/plain');
+                document.execCommand('insertText', false, text);
+            }
+        });
+        DOM.editor.addEventListener('keydown', (e) => {
+            const codeContent = e.target.closest('.code-content');
+            if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
+                e.preventDefault();
+                const sel = window.getSelection();
+                const range = document.createRange();
+                if (codeContent) range.selectNodeContents(codeContent); else range.selectNodeContents(DOM.editor);
+                sel.removeAllRanges(); sel.addRange(range);
+                return;
+            }
+            if (!codeContent) return;
+            if (e.key === 'Enter') { e.preventDefault(); document.execCommand('insertText', false, '\n'); return; }
+            if (e.key === 'Tab') { e.preventDefault(); document.execCommand('insertText', false, '    '); return; }
+        });
+        DOM.editor.addEventListener('keydown', (e) => {
+            if (e.target.closest('.code-content')) return;
+            if (e.key === 'Backspace' || e.key === 'Delete') {
+                const sel = window.getSelection();
+                if (!sel.rangeCount) return;
+                const range = sel.getRangeAt(0);
+                const block = range.startContainer.nodeType === 3 ? range.startContainer.parentNode : range.startContainer;
+                const currentLine = block.closest('div, p');
+                if (currentLine && e.key === 'Backspace' && range.startOffset === 0) {
+                    const prev = currentLine.previousElementSibling;
+                    if (prev && prev.querySelector('.code-block')) { e.preventDefault(); prev.remove(); FileSystem.triggerSave(); }
+                }
+            }
+        });
+        
+        // 强制挂载全局
+        window.UI = UI;
+        window.FileSystem = FileSystem;
+        window.Editor = Editor;
+    </script>
+</body>
+</html>
